@@ -1,7 +1,6 @@
 /**
  * Judul : LK21 Scraper CLI & CommonJS Module
- * Base Url: https://tv12.lk21official.cc
- * Diperbarui dengan Auto-Bypass Cloudflare 403
+ * Update: Fast Proxy Bypass untuk mencegah Vercel Timeout (Error 408)
  */
 
 const axios = require('axios');
@@ -9,28 +8,32 @@ const cheerio = require('cheerio');
 
 const BASE_URL = 'https://tv12.lk21official.cc';
 
-// Header yang disamarkan agar terlihat seperti browser manusia asli
+// Header yang disamarkan
 const headers = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
   'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+  'Referer': 'https://www.google.com/'
 };
 
-// === FUNGSI SAKTI PENEMBUS CLOUDFLARE ===
+// === FUNGSI SAKTI PENEMBUS CLOUDFLARE NGEBUT ===
 async function fetchUrl(url) {
   try {
-    // Mencoba mengetuk pintu depan secara normal
-    const response = await axios.get(url, { headers, timeout: 15000 });
+    // 1. Coba ketuk pintu depan secara normal (Batas waktu cuma 4 detik)
+    // Agar kalau diblokir, kita ga buang-buang waktu Vercel.
+    const response = await axios.get(url, { headers, timeout: 4000 });
     return response.data;
   } catch (error) {
-    // Jika pintu dibanting (403 Forbidden / 503), kita lewat jalur tikus (Proxy AllOrigins)
-    if (error.response && (error.response.status === 403 || error.response.status === 503)) {
-      console.log(`[Bypass] Terkena blokir di ${url}, mengalihkan ke Proxy...`);
-      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-      const proxyRes = await axios.get(proxyUrl, { timeout: 20000 });
+    console.log(`[Bypass] Gagal direct, menggunakan Proxy Cepat...`);
+    try {
+      // 2. Jika gagal/diblokir, langsung pakai Proxy Codetabs (Batas waktu 5 detik)
+      // Total waktu < 10 detik, aman dari amukan Vercel!
+      const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
+      const proxyRes = await axios.get(proxyUrl, { timeout: 5000 });
       return proxyRes.data;
+    } catch (proxyError) {
+      throw new Error("Server LK21 atau Proxy sedang lambat/down (408). Coba refresh beberapa saat lagi.");
     }
-    throw error;
   }
 }
 
@@ -100,7 +103,16 @@ async function search(query) {
     const apiEndpoint = `${searchApiBase}search.php?s=${encodeURIComponent(query)}&page=1`;
     const apiResData = await fetchUrl(apiEndpoint);
     
-    const rawItems = apiResData && (apiResData.data || apiResData.items) ? (apiResData.data || apiResData.items) : [];
+    // Sesuaikan parsing JSON dari response proxy (Codetabs membungkus response mentah)
+    let rawItems = [];
+    if (typeof apiResData === 'string') {
+        try {
+            const parsed = JSON.parse(apiResData);
+            rawItems = parsed.data || parsed.items || [];
+        } catch(e) {}
+    } else {
+        rawItems = apiResData && (apiResData.data || apiResData.items) ? (apiResData.data || apiResData.items) : [];
+    }
 
     const results = rawItems.map(item => {
       let thumbnail = item.poster || '';
