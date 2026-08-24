@@ -3,18 +3,28 @@ const cheerio = require('cheerio');
 
 const BASE_URL = 'https://tv12.lk21official.cc';
 
-const client = axios.create({
-  headers: {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
-  },
-  timeout: 15000
-});
+// Fungsi helper untuk mengambil HTML LK21 via Proxy agar Vercel tidak diblokir 403
+async function fetchViaProxy(url) {
+  const proxyUrls = [
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+    `https://corsproxy.io/?${encodeURIComponent(url)}`
+  ];
+
+  for (let pUrl of proxyUrls) {
+    try {
+      const res = await axios.get(pUrl, { timeout: 8000 });
+      if (res.data) return res.data;
+    } catch (err) {
+      continue;
+    }
+  }
+  throw new Error("Gagal mengambil data dari LK21 (Diblokir Cloudflare/Timeout).");
+}
 
 async function getHome() {
   try {
-    const response = await client.get(BASE_URL);
-    const $ = cheerio.load(response.data);
+    const htmlData = await fetchViaProxy(BASE_URL);
+    const $ = cheerio.load(htmlData);
     const results = [];
 
     $('article').each((_, el) => {
@@ -68,22 +78,24 @@ async function search(query) {
 
   try {
     const searchPageUrl = `${BASE_URL}/search?s=${encodeURIComponent(query)}`;
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Origin': BASE_URL,
-      'Referer': searchPageUrl
-    };
-
-    const pageRes = await axios.get(searchPageUrl, { headers, timeout: 15000 });
-    const $ = cheerio.load(pageRes.data);
+    const pageHtml = await fetchViaProxy(searchPageUrl);
+    const $ = cheerio.load(pageHtml);
     
     const searchApiBase = $('body').attr('data-search_url') || 'https://gudangvape.com/';
     const thumbnailApiBase = $('body').attr('data-thumbnail_url') || 'https://poster.assetsy.de/wp-content/uploads/';
 
     const apiEndpoint = `${searchApiBase}search.php?s=${encodeURIComponent(query)}&page=1`;
-    const apiRes = await axios.get(apiEndpoint, { headers, timeout: 15000 });
     
-    const rawItems = apiRes.data && (apiRes.data.data || apiRes.data.items) ? (apiRes.data.data || apiRes.data.items) : [];
+    // Ambil data JSON pencarian melalui proxy juga
+    const apiDataHtml = await fetchViaProxy(apiEndpoint);
+    let apiResData;
+    try {
+      apiResData = typeof apiDataHtml === 'string' ? JSON.parse(apiDataHtml) : apiDataHtml;
+    } catch(e) {
+      apiResData = {};
+    }
+    
+    const rawItems = apiResData && (apiResData.data || apiResData.items) ? (apiResData.data || apiResData.items) : [];
 
     const results = rawItems.map(item => {
       let thumbnail = item.poster || '';
@@ -116,8 +128,8 @@ async function getDetail(targetUrl) {
   }
 
   try {
-    const res = await client.get(fullUrl);
-    const $ = cheerio.load(res.data);
+    const resHtml = await fetchViaProxy(fullUrl);
+    const $ = cheerio.load(resHtml);
 
     let judul = $('h1').text().trim() || $('meta[property="og:title"]').attr('content') || '';
     judul = judul.replace(/^Nonton (movie|film) /i, '').trim();
@@ -155,10 +167,19 @@ async function getDetail(targetUrl) {
       }
     });
 
-    return { judul, url: fullUrl, deskripsi, url_stream: streamUrls };
+    return {
+      judul,
+      url: fullUrl,
+      deskripsi,
+      url_stream: streamUrls
+    };
   } catch (error) {
     throw new Error(`Failed to fetch movie detail: ${error.message}`);
   }
 }
 
-module.exports = { getHome, search, getDetail };
+module.exports = {
+  getHome,
+  search,
+  getDetail
+};
