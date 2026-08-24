@@ -36,7 +36,6 @@
         
         #loading { text-align: center; color: #00b4d8; font-weight: bold; margin: 20px; display: none; }
         .desc-text { font-size: 13px; color: #ccc; line-height: 1.6; margin-bottom: 15px; }
-        .error-msg { text-align: center; color: #ff3333; font-weight: bold; padding: 20px; background: #1a1a1a; border-radius: 8px; border: 1px solid #ff3333; margin-top: 20px; }
     </style>
 </head>
 <body>
@@ -50,16 +49,13 @@
     </header>
 
     <div class="container">
-        <div id="loading">Menghubungkan ke Server LK21... ⏳</div>
+        <div id="loading">Memuat data film... ⏳</div>
         
         <div id="player-section">
             <h2 id="play-title" style="margin-top: 0; color:#00b4d8;">Judul Film</h2>
             <div class="desc-text" id="play-desc"></div>
             
-            <!-- Area Iframe Player -->
             <div id="video-wrapper"></div>
-            
-            <!-- Pilihan Server -->
             <div id="server-list-container"></div>
         </div>
 
@@ -70,24 +66,14 @@
     <script>
         async function fetchAPI(url) {
             document.getElementById('loading').style.display = 'block';
-            document.getElementById('movieGrid').innerHTML = ''; // Bersihkan grid lama
-            
             try {
                 let res = await fetch(url);
                 let json = await res.json();
                 document.getElementById('loading').style.display = 'none';
-                
-                // Menangkap error dari backend Vercel
-                if (json.status !== 200) {
-                    document.getElementById('movieGrid').innerHTML = `<div class="error-msg">❌ Gagal terhubung ke LK21:<br>${json.error || 'Server menolak.'}</div>`;
-                    return null;
-                }
-                
                 return json.data;
             } catch (err) {
                 console.error(err);
                 document.getElementById('loading').style.display = 'none';
-                document.getElementById('movieGrid').innerHTML = `<div class="error-msg">❌ Error Jaringan / Konfigurasi API:<br>${err.message}</div>`;
                 return null;
             }
         }
@@ -97,13 +83,8 @@
             document.getElementById('grid-title').innerText = "Rekomendasi Terbaru";
             document.getElementById('video-wrapper').innerHTML = '';
             
-            // Memanggil path '/api' langsung
             const data = await fetchAPI('/api?action=home');
-            if (data && data.length > 0) {
-                renderGrid(data);
-            } else if (data && data.length === 0) {
-                document.getElementById('movieGrid').innerHTML = '<div style="color:#aaa;">Tidak ada data yang diambil.</div>';
-            }
+            if (data) renderGrid(data);
         }
 
         async function searchMovie() {
@@ -117,7 +98,7 @@
             const data = await fetchAPI(`/api?action=search&query=${encodeURIComponent(keyword)}`);
             if (data && data.length > 0) {
                 renderGrid(data);
-            } else if (data) {
+            } else {
                 document.getElementById('movieGrid').innerHTML = '<div style="color:#aaa;">Film tidak ditemukan.</div>';
             }
         }
@@ -168,7 +149,6 @@
                     serversHTML += '</div></div>';
                     document.getElementById('server-list-container').innerHTML = serversHTML;
 
-                    // Putar server pertama otomatis
                     setTimeout(() => {
                         let btns = document.querySelectorAll('#server-list-container .ep-btn');
                         if(btns.length > 0) btns[0].classList.add('active');
@@ -176,11 +156,12 @@
 
                     switchServer(data.url_stream[0].url, null);
                 } else {
-                    document.getElementById('video-wrapper').innerHTML = '<div style="color:red;">Server streaming tidak ditemukan/belum tersedia!</div>';
+                    document.getElementById('video-wrapper').innerHTML = '<div style="color:red;">Server streaming tidak ditemukan!</div>';
                 }
             }
         }
 
+        // === MENGGUNAKAN PROXY ZYNFX UNTUK PEMUTARAN ===
         window.switchServer = function(link, btnElement) {
             if(btnElement) {
                 document.querySelectorAll('#server-list-container .ep-btn').forEach(b => b.classList.remove('active'));
@@ -188,7 +169,11 @@
             }
             
             const videoContainer = document.getElementById('video-wrapper');
-            videoContainer.innerHTML = `<iframe src="${link}" allowfullscreen allow="autoplay; fullscreen" sandbox="allow-scripts allow-same-origin allow-presentation"></iframe>`;
+            
+            // Melewatkan link video asli melalui proxy Zynfx
+            const proxiedLink = `/api/proxy?url=${encodeURIComponent(link)}`;
+            
+            videoContainer.innerHTML = `<iframe src="${proxiedLink}" allowfullscreen allow="autoplay; fullscreen" sandbox="allow-scripts allow-same-origin allow-presentation"></iframe>`;
         };
 
         loadHome();
