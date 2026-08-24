@@ -1,7 +1,7 @@
 /**
  * Judul : LK21 Scraper CLI & CommonJS Module
  * Base Url: https://tv12.lk21official.cc
- * Author : t.me/Velzyguy
+ * Diperbarui dengan Auto-Bypass Cloudflare 403
  */
 
 const axios = require('axios');
@@ -9,18 +9,35 @@ const cheerio = require('cheerio');
 
 const BASE_URL = 'https://tv12.lk21official.cc';
 
-const client = axios.create({
-  headers: {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
-  },
-  timeout: 15000
-});
+// Header yang disamarkan agar terlihat seperti browser manusia asli
+const headers = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+};
+
+// === FUNGSI SAKTI PENEMBUS CLOUDFLARE ===
+async function fetchUrl(url) {
+  try {
+    // Mencoba mengetuk pintu depan secara normal
+    const response = await axios.get(url, { headers, timeout: 15000 });
+    return response.data;
+  } catch (error) {
+    // Jika pintu dibanting (403 Forbidden / 503), kita lewat jalur tikus (Proxy AllOrigins)
+    if (error.response && (error.response.status === 403 || error.response.status === 503)) {
+      console.log(`[Bypass] Terkena blokir di ${url}, mengalihkan ke Proxy...`);
+      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+      const proxyRes = await axios.get(proxyUrl, { timeout: 20000 });
+      return proxyRes.data;
+    }
+    throw error;
+  }
+}
 
 async function getHome() {
   try {
-    const response = await client.get(BASE_URL);
-    const $ = cheerio.load(response.data);
+    const htmlData = await fetchUrl(BASE_URL);
+    const $ = cheerio.load(htmlData);
     const results = [];
 
     $('article').each((_, el) => {
@@ -57,14 +74,7 @@ async function getHome() {
       let durasi = $el.find('.duration, [itemprop="duration"]').text().trim() || 'N/A';
 
       if (judul && url) {
-        results.push({
-          judul,
-          thumbnail,
-          url,
-          star,
-          durasi,
-          kategori
-        });
+        results.push({ judul, thumbnail, url, star, durasi, kategori });
       }
     });
 
@@ -81,22 +91,16 @@ async function search(query) {
 
   try {
     const searchPageUrl = `${BASE_URL}/search?s=${encodeURIComponent(query)}`;
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Origin': BASE_URL,
-      'Referer': searchPageUrl
-    };
-
-    const pageRes = await axios.get(searchPageUrl, { headers, timeout: 15000 });
-    const $ = cheerio.load(pageRes.data);
+    const pageHtml = await fetchUrl(searchPageUrl);
+    const $ = cheerio.load(pageHtml);
     
     const searchApiBase = $('body').attr('data-search_url') || 'https://gudangvape.com/';
     const thumbnailApiBase = $('body').attr('data-thumbnail_url') || 'https://poster.assetsy.de/wp-content/uploads/';
 
     const apiEndpoint = `${searchApiBase}search.php?s=${encodeURIComponent(query)}&page=1`;
-    const apiRes = await axios.get(apiEndpoint, { headers, timeout: 15000 });
+    const apiResData = await fetchUrl(apiEndpoint);
     
-    const rawItems = apiRes.data && (apiRes.data.data || apiRes.data.items) ? (apiRes.data.data || apiRes.data.items) : [];
+    const rawItems = apiResData && (apiResData.data || apiResData.items) ? (apiResData.data || apiResData.items) : [];
 
     const results = rawItems.map(item => {
       let thumbnail = item.poster || '';
@@ -109,13 +113,7 @@ async function search(query) {
       const kategori = item.type || 'movie';
       const star = item.rating ? String(item.rating) : 'N/A';
 
-      return {
-        thumbnail,
-        url: itemUrl,
-        judul,
-        kategori,
-        star
-      };
+      return { thumbnail, url: itemUrl, judul, kategori, star };
     });
 
     return results;
@@ -135,8 +133,8 @@ async function getDetail(targetUrl) {
   }
 
   try {
-    const res = await client.get(fullUrl);
-    const $ = cheerio.load(res.data);
+    const htmlData = await fetchUrl(fullUrl);
+    const $ = cheerio.load(htmlData);
 
     let judul = $('h1').text().trim() || $('meta[property="og:title"]').attr('content') || '';
     judul = judul.replace(/^Nonton (movie|film) /i, '').trim();
@@ -149,7 +147,6 @@ async function getDetail(targetUrl) {
 
     const streamUrls = [];
 
-    iframes
     $('iframe').each((_, el) => {
       const src = $(el).attr('src');
       if (src && !src.includes('googletagmanager') && !src.includes('facebook') && !src.includes('analytics')) {
@@ -161,7 +158,6 @@ async function getDetail(targetUrl) {
       }
     });
 
-    // Extract from server selection buttons/links
     $('ul li a, select option, div a, #load-player option, .player-options a').each((_, el) => {
       const href = $(el).attr('href') || $(el).attr('value') || $(el).attr('data-url') || $(el).attr('data-src');
       let serverText = $(el).text().trim() || $(el).attr('title') || 'Stream';
@@ -176,72 +172,10 @@ async function getDetail(targetUrl) {
       }
     });
 
-    return {
-      judul,
-      url: fullUrl,
-      deskripsi,
-      url_stream: streamUrls
-    };
+    return { judul, url: fullUrl, deskripsi, url_stream: streamUrls };
   } catch (error) {
     throw new Error(`Failed to fetch movie detail: ${error.message}`);
   }
 }
 
-// Module Exports for CJS
-module.exports = {
-  getHome,
-  search,
-  getDetail
-};
-
-// CLI Command Runner
-if (require.main === module) {
-  const args = process.argv.slice(2);
-
-  if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
-    console.log(`
-Penggunaan Command LK21 Scraper:
-  node lk21.js --home
-    Menampilkan data result lengkap halaman utama (thumbnail, url, star, durasi, judul, kategori)
-
-  node lk21.js --search <query>
-    Mencari film/series berdasarkan kata kunci (thumbnail, url, judul, kategori, star)
-
-  node lk21.js <url_atau_slug>
-    Menampilkan detail film/series (judul, url, deskripsi, url stream)
-    Contoh: node lk21.js https://tv12.lk21official.cc/spider-man-brand-new-day-2026
-`);
-    process.exit(0);
-  }
-
-  async function main() {
-    const firstArg = args[0];
-
-    if (firstArg === '--home' || firstArg === '-home') {
-      const data = await getHome();
-      console.log(JSON.stringify(data, null, 2));
-    } else if (firstArg === '--search' || firstArg === '-s') {
-      const query = args.slice(1).join(' ');
-      if (!query) {
-        console.error('Error: Masukkan kata kunci pencarian! Contoh: node lk21.js --search siderman');
-        process.exit(1);
-      }
-      const data = await search(query);
-      console.log(JSON.stringify(data, null, 2));
-    } else {
-      // Detail view command
-      const target = firstArg.startsWith('--') ? args[1] : firstArg;
-      if (!target) {
-        console.error('Error: Masukkan URL atau slug film! Contoh: node lk21.js https://tv12.lk21official.cc/spider-man-brand-new-day-2026');
-        process.exit(1);
-      }
-      const data = await getDetail(target);
-      console.log(JSON.stringify(data, null, 2));
-    }
-  }
-
-  main().catch(err => {
-    console.error('Error:', err.message);
-    process.exit(1);
-  });
-      }
+module.exports = { getHome, search, getDetail };
