@@ -36,6 +36,7 @@
         
         #loading { text-align: center; color: #00b4d8; font-weight: bold; margin: 20px; display: none; }
         .desc-text { font-size: 13px; color: #ccc; line-height: 1.6; margin-bottom: 15px; }
+        .error-msg { text-align: center; color: #ff3333; font-weight: bold; padding: 20px; background: #1a1a1a; border-radius: 8px; border: 1px solid #ff3333; margin-top: 20px; }
     </style>
 </head>
 <body>
@@ -69,14 +70,24 @@
     <script>
         async function fetchAPI(url) {
             document.getElementById('loading').style.display = 'block';
+            document.getElementById('movieGrid').innerHTML = ''; // Bersihkan grid lama
+            
             try {
                 let res = await fetch(url);
                 let json = await res.json();
                 document.getElementById('loading').style.display = 'none';
+                
+                // Menangkap error dari backend Vercel
+                if (json.status !== 200) {
+                    document.getElementById('movieGrid').innerHTML = `<div class="error-msg">❌ Gagal terhubung ke LK21:<br>${json.error || 'Server menolak.'}</div>`;
+                    return null;
+                }
+                
                 return json.data;
             } catch (err) {
                 console.error(err);
                 document.getElementById('loading').style.display = 'none';
+                document.getElementById('movieGrid').innerHTML = `<div class="error-msg">❌ Error Jaringan / Konfigurasi API:<br>${err.message}</div>`;
                 return null;
             }
         }
@@ -86,8 +97,13 @@
             document.getElementById('grid-title').innerText = "Rekomendasi Terbaru";
             document.getElementById('video-wrapper').innerHTML = '';
             
-            const data = await fetchAPI('/api/index?action=home');
-            if (data) renderGrid(data);
+            // Memanggil path '/api' langsung
+            const data = await fetchAPI('/api?action=home');
+            if (data && data.length > 0) {
+                renderGrid(data);
+            } else if (data && data.length === 0) {
+                document.getElementById('movieGrid').innerHTML = '<div style="color:#aaa;">Tidak ada data yang diambil.</div>';
+            }
         }
 
         async function searchMovie() {
@@ -98,10 +114,10 @@
             document.getElementById('video-wrapper').innerHTML = '';
             document.getElementById('grid-title').innerText = `Hasil Pencarian: "${keyword}"`;
             
-            const data = await fetchAPI(`/api/index?action=search&query=${encodeURIComponent(keyword)}`);
+            const data = await fetchAPI(`/api?action=search&query=${encodeURIComponent(keyword)}`);
             if (data && data.length > 0) {
                 renderGrid(data);
-            } else {
+            } else if (data) {
                 document.getElementById('movieGrid').innerHTML = '<div style="color:#aaa;">Film tidak ditemukan.</div>';
             }
         }
@@ -135,7 +151,7 @@
             document.getElementById('video-wrapper').innerHTML = '<div style="color:#aaa;">Menyiapkan server...</div>';
             document.getElementById('server-list-container').innerHTML = '';
 
-            const data = await fetchAPI(`/api/index?action=detail&url=${encodeURIComponent(url)}`);
+            const data = await fetchAPI(`/api?action=detail&url=${encodeURIComponent(url)}`);
 
             if (data) {
                 document.getElementById('play-title').innerText = data.judul;
@@ -172,13 +188,10 @@
             }
             
             const videoContainer = document.getElementById('video-wrapper');
-            // Embed langsung menggunakan Iframe
             videoContainer.innerHTML = `<iframe src="${link}" allowfullscreen allow="autoplay; fullscreen" sandbox="allow-scripts allow-same-origin allow-presentation"></iframe>`;
         };
 
-        // Jalankan saat web dibuka
         loadHome();
     </script>
 </body>
 </html>
-
