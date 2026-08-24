@@ -1,46 +1,20 @@
-/**
- * Judul : LK21 Scraper CLI & CommonJS Module
- * Update: Fast Proxy Bypass untuk mencegah Vercel Timeout (Error 408)
- */
-
 const axios = require('axios');
 const cheerio = require('cheerio');
 
 const BASE_URL = 'https://tv12.lk21official.cc';
 
-// Header yang disamarkan
-const headers = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-  'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
-  'Referer': 'https://www.google.com/'
-};
-
-// === FUNGSI SAKTI PENEMBUS CLOUDFLARE NGEBUT ===
-async function fetchUrl(url) {
-  try {
-    // 1. Coba ketuk pintu depan secara normal (Batas waktu cuma 4 detik)
-    // Agar kalau diblokir, kita ga buang-buang waktu Vercel.
-    const response = await axios.get(url, { headers, timeout: 4000 });
-    return response.data;
-  } catch (error) {
-    console.log(`[Bypass] Gagal direct, menggunakan Proxy Cepat...`);
-    try {
-      // 2. Jika gagal/diblokir, langsung pakai Proxy Codetabs (Batas waktu 5 detik)
-      // Total waktu < 10 detik, aman dari amukan Vercel!
-      const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
-      const proxyRes = await axios.get(proxyUrl, { timeout: 5000 });
-      return proxyRes.data;
-    } catch (proxyError) {
-      throw new Error("Server LK21 atau Proxy sedang lambat/down (408). Coba refresh beberapa saat lagi.");
-    }
-  }
-}
+const client = axios.create({
+  headers: {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+  },
+  timeout: 15000
+});
 
 async function getHome() {
   try {
-    const htmlData = await fetchUrl(BASE_URL);
-    const $ = cheerio.load(htmlData);
+    const response = await client.get(BASE_URL);
+    const $ = cheerio.load(response.data);
     const results = [];
 
     $('article').each((_, el) => {
@@ -94,25 +68,22 @@ async function search(query) {
 
   try {
     const searchPageUrl = `${BASE_URL}/search?s=${encodeURIComponent(query)}`;
-    const pageHtml = await fetchUrl(searchPageUrl);
-    const $ = cheerio.load(pageHtml);
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Origin': BASE_URL,
+      'Referer': searchPageUrl
+    };
+
+    const pageRes = await axios.get(searchPageUrl, { headers, timeout: 15000 });
+    const $ = cheerio.load(pageRes.data);
     
     const searchApiBase = $('body').attr('data-search_url') || 'https://gudangvape.com/';
     const thumbnailApiBase = $('body').attr('data-thumbnail_url') || 'https://poster.assetsy.de/wp-content/uploads/';
 
     const apiEndpoint = `${searchApiBase}search.php?s=${encodeURIComponent(query)}&page=1`;
-    const apiResData = await fetchUrl(apiEndpoint);
+    const apiRes = await axios.get(apiEndpoint, { headers, timeout: 15000 });
     
-    // Sesuaikan parsing JSON dari response proxy (Codetabs membungkus response mentah)
-    let rawItems = [];
-    if (typeof apiResData === 'string') {
-        try {
-            const parsed = JSON.parse(apiResData);
-            rawItems = parsed.data || parsed.items || [];
-        } catch(e) {}
-    } else {
-        rawItems = apiResData && (apiResData.data || apiResData.items) ? (apiResData.data || apiResData.items) : [];
-    }
+    const rawItems = apiRes.data && (apiRes.data.data || apiRes.data.items) ? (apiRes.data.data || apiRes.data.items) : [];
 
     const results = rawItems.map(item => {
       let thumbnail = item.poster || '';
@@ -145,8 +116,8 @@ async function getDetail(targetUrl) {
   }
 
   try {
-    const htmlData = await fetchUrl(fullUrl);
-    const $ = cheerio.load(htmlData);
+    const res = await client.get(fullUrl);
+    const $ = cheerio.load(res.data);
 
     let judul = $('h1').text().trim() || $('meta[property="og:title"]').attr('content') || '';
     judul = judul.replace(/^Nonton (movie|film) /i, '').trim();
