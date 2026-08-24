@@ -1,8 +1,9 @@
 const { getHome, search, getDetail } = require('./lk21');
 
-export default async function handler(req, res) {
-  // Mengizinkan akses CORS agar web tidak diblokir
+module.exports = async function(req, res) {
+  // Mengizinkan akses dari web agar tidak kena blokir CORS browser
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   
   const { action, query, url } = req.query;
 
@@ -26,8 +27,8 @@ export default async function handler(req, res) {
 
     return res.status(404).json({ error: 'Aksi tidak ditemukan. Gunakan action=home/search/detail' });
   } catch (error) {
-    console.error(error);
+    console.error("Scraper Error:", error);
+    // Mengirimkan pesan error spesifik jika LK21 menolak koneksi Vercel
     return res.status(500).json({ status: 500, error: error.message });
   }
-}
-
+};
